@@ -20,7 +20,8 @@ connection::connection(boost::asio::io_service& io_service,
     request_handler& handler)
   : strand_(io_service),
     socket_(io_service),
-    request_handler_(handler)
+    request_handler_(handler),
+    timer_(io_service, boost::posix_time::seconds(60))
 {
 }
 
@@ -31,8 +32,15 @@ boost::asio::ip::tcp::socket& connection::socket()
 
 void connection::start()
 {
-  cinfo.address = socket_.remote_endpoint().address().to_string();
-  cinfo.port = socket_.remote_endpoint().port();
+  
+  cinfo_.address = socket_.remote_endpoint().address().to_string();
+  cinfo_.port = socket_.remote_endpoint().port();
+
+  std::stringstream sstream;
+  sstream << "Client: [" << cinfo_.address << ":" << cinfo_.port 
+          << "] open connection.";
+  logger::log(sstream.str().c_str());
+
   socket_.async_read_some(boost::asio::buffer(buffer_),
       strand_.wrap(
         boost::bind(&connection::handle_read, shared_from_this(),
@@ -46,31 +54,41 @@ void connection::handle_read(const boost::system::error_code& e,
   if (!e)
   {
     boost::tribool result;
+	/*
+    logger::log((string() + "receive data: " + buffer_.data()).c_str());
+	*/
+    request_.reset();
     boost::tie(result, boost::tuples::ignore) = request_parser_.parse(
         request_, buffer_.data(), buffer_.data() + bytes_transferred);
 
     if (result)
     {
-      ftime(&cinfo.stime);
-      cinfo.ecode = request_handler_.handle_request(request_, reply_);
-      cinfo.filename = request_.uri;
-      cinfo.filesize = reply_.content.size();
+      ftime(&cinfo_.stime);
+      cinfo_.ecode = request_handler_.handle_request(request_, reply_);
+      cinfo_.filename = request_.uri;
+      cinfo_.filesize = reply_.content.size();
       boost::asio::async_write(socket_, reply_.to_buffers(),
           strand_.wrap(
             boost::bind(&connection::handle_write, shared_from_this(),
               boost::asio::placeholders::error)));
       std::stringstream sstream;
-      sstream << "Client: [" << cinfo.address << ":" << cinfo.port 
-	      << "] request file '" << cinfo.filename << "'.";
+      sstream << "Client: [" << cinfo_.address << ":" << cinfo_.port 
+	      << "] request file '" << cinfo_.filename << "'.";
       logger::log(sstream.str().c_str());
     }
     else if (!result)
     {
       reply_ = reply::stock_reply(reply::bad_request);
+      cinfo_.ecode = reply::bad_request;
       boost::asio::async_write(socket_, reply_.to_buffers(),
           strand_.wrap(
             boost::bind(&connection::handle_write, shared_from_this(),
               boost::asio::placeholders::error)));
+      std::stringstream sstream;
+      sstream << "Client: [" << cinfo_.address << ":" << cinfo_.port 
+	      << "] bad request.";
+      logger::log(sstream.str().c_str());
+
     }
     else
     {
@@ -88,39 +106,77 @@ void connection::handle_read(const boost::system::error_code& e,
   // handler returns. The connection class's destructor closes the socket.
 }
 
+void connection::handle_timeout(const boost::system::error_code& e)
+{
+  if (!e)
+  {
+    boost::system::error_code ignored_ec;
+    socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
+    stringstream sstream;
+    sstream << "Client [" << cinfo_.address << ":" << cinfo_.port << "] connection closed.";
+    logger::log(sstream.str().c_str());
+  } 
+}
+
 void connection::handle_write(const boost::system::error_code& e)
 {
   std::stringstream sstream;
-  if (!e && cinfo.ecode == reply::ok)
+  if (!e && cinfo_.ecode == reply::ok)
   {
-    ftime(&cinfo.etime);
-    sstream << "Successful send file '" << cinfo.filename << "' " << cinfo.filesize
-	    << " bytes to client ["  << cinfo.address << ":" << cinfo.port 
-	    << "] after " << (cinfo.etime.time - cinfo.stime.time) * 1000 + 
-	    (cinfo.etime.millitm - cinfo.stime.millitm) << " ms from receiving its request.";
+    ftime(&cinfo_.etime);
+    sstream << "Successful send file '" << cinfo_.filename << "' " << cinfo_.filesize
+	    << " bytes to client ["  << cinfo_.address << ":" << cinfo_.port 
+	    << "] after " << (cinfo_.etime.time - cinfo_.stime.time) * 1000 + 
+	    (cinfo_.etime.millitm - cinfo_.stime.millitm) << " ms from receiving its request.";
     logger::log(sstream.str().c_str());
+
+    socket_.async_read_some(boost::asio::buffer(buffer_),
+      strand_.wrap(
+        boost::bind(&connection::handle_read, shared_from_this(),
+          boost::asio::placeholders::error,
+          boost::asio::placeholders::bytes_transferred)));
+
+    timer_.expires_from_now(boost::posix_time::seconds(60));
+    timer_.async_wait(boost::bind(&connection::handle_timeout, shared_from_this(),
+              boost::asio::placeholders::error));
+    /*
 
     // Initiate graceful connection closure.
     boost::system::error_code ignored_ec;
     socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
+    */
+  } else if(!e) {
+    std::string error;
+    switch(cinfo_.ecode) {
+    case reply::not_found:
+        error = "'not found'";
+        break;
+    case reply::bad_request:
+        error = "'bad request'";
+        break;
+    default:
+        error = "'unknown'";
+        break;
+    }
+    sstream << "Fail to send file '" << cinfo_.filename << "' to client [" << cinfo_.address << ":"
+	    << cinfo_.port << "] due to error " << error << ".";
+    logger::log(sstream.str().c_str());
+
+    socket_.async_read_some(boost::asio::buffer(buffer_),
+      strand_.wrap(
+        boost::bind(&connection::handle_read, shared_from_this(),
+          boost::asio::placeholders::error,
+          boost::asio::placeholders::bytes_transferred)));
+
+    timer_.expires_from_now(boost::posix_time::seconds(60));
+    timer_.async_wait(boost::bind(&connection::handle_timeout, shared_from_this(),
+              boost::asio::placeholders::error));
   } else {
     std::string error = "'send failed'";
-    if(!e) {
-        switch(cinfo.ecode) {
-        case reply::not_found:
-            error = "'not found'";
-            break;
-        case reply::bad_request:
-            error = "'bad request'";
-            break;
-        default:
-            error = "'unknown'";
-            break;
-        }
-    }
-    sstream << "Fail to send file '" << cinfo.filename << "' to client [" << cinfo.address << ":"
-	    << cinfo.port << "] due to error " << error << ".";
+    sstream << "Fail to send file '" << cinfo_.filename << "' to client [" << cinfo_.address << ":"
+	    << cinfo_.port << "] due to error " << error << ".";
     logger::log(sstream.str().c_str());
+
   }
 
   // No new asynchronous operations are started. This means that all shared_ptr

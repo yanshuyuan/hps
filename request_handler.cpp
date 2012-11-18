@@ -70,8 +70,10 @@ int request_handler::handle_request(const request& req, reply& rep)
   // Fill out the reply to be sent to the client.
   rep.status = reply::ok;
   char buf[512];
+  rep.content.clear();
   while (is.read(buf, sizeof(buf)).gcount() > 0)
     rep.content.append(buf, is.gcount());
+  is.close();
   rep.headers.resize(2);
   rep.headers[0].name = "Content-Length";
   rep.headers[0].value = boost::lexical_cast<std::string>(rep.content.size());
