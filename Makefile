@@ -21,9 +21,5 @@ connection.o: connection.cpp connection.hpp client_info.hpp reply.hpp request.hp
 server.o: server.cpp server.hpp connection.hpp request_handler.hpp
 	g++ -o server.o -Wall -ansi -c server.cpp -lboost_thread -g
 
-
-logger_unittest.o: logger.hpp logger_unittest.cpp
-	g++ -o logger_unittest.o -Wall -ansi -c logger_unittest.cpp -g
-logger_unittest: logger.o logger_unittest.o
-	g++ -o logger_unittest -Wall -ansi logger.o logger_unittest.o -g
-
+clean: 
+	rm -rf *.o

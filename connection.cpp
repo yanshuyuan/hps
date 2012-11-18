@@ -61,7 +61,7 @@ void connection::handle_read(const boost::system::error_code& e,
               boost::asio::placeholders::error)));
       std::stringstream sstream;
       sstream << "Client: [" << cinfo.address << ":" << cinfo.port 
-	      << " request file " << cinfo.filename << ".";
+	      << "] request file '" << cinfo.filename << "'.";
       logger::log(sstream.str().c_str());
     }
     else if (!result)
@@ -93,7 +93,8 @@ void connection::handle_write(const boost::system::error_code& e)
   std::stringstream sstream;
   if (!e && cinfo.ecode == reply::ok)
   {
-    sstream << "Successful send file " << cinfo.filename << " " << cinfo.filesize
+    ftime(&cinfo.etime);
+    sstream << "Successful send file '" << cinfo.filename << "' " << cinfo.filesize
 	    << " bytes to client ["  << cinfo.address << ":" << cinfo.port 
 	    << "] after " << (cinfo.etime.time - cinfo.stime.time) * 1000 + 
 	    (cinfo.etime.millitm - cinfo.stime.millitm) << " ms from receiving its request.";
@@ -117,7 +118,7 @@ void connection::handle_write(const boost::system::error_code& e)
             break;
         }
     }
-    sstream << "Fail to send file " << cinfo.filename << " to client [" << cinfo.address << ":"
+    sstream << "Fail to send file '" << cinfo.filename << "' to client [" << cinfo.address << ":"
 	    << cinfo.port << "] due to error " << error << ".";
     logger::log(sstream.str().c_str());
   }
