@@ -54,9 +54,7 @@ void connection::handle_read(const boost::system::error_code& e,
   if (!e)
   {
     boost::tribool result;
-	/*
-    logger::log((string() + "receive data: " + buffer_.data()).c_str());
-	*/
+    
     request_.reset();
     boost::tie(result, boost::tuples::ignore) = request_parser_.parse(
         request_, buffer_.data(), buffer_.data() + bytes_transferred);
