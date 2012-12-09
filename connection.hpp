@@ -24,6 +24,7 @@
 #include "request.hpp"
 #include "request_handler.hpp"
 #include "request_parser.hpp"
+#include <boost/date_time/posix_time/posix_time.hpp>
 
 namespace http {
 namespace server3 {
@@ -52,6 +53,9 @@ private:
   /// Handle completion of a write operation.
   void handle_write(const boost::system::error_code& e);
 
+  /// Handle timeout event of a connection arrvie limit time .
+  void handle_timeout(const boost::system::error_code& e);
+
   /// Strand to ensure the connection's handlers are not called concurrently.
   boost::asio::io_service::strand strand_;
 
@@ -73,7 +77,11 @@ private:
   /// The reply to be sent back to the client.
   reply reply_;
 
-  client_info cinfo;
+  // The info to record client information.
+  client_info cinfo_;
+  
+  // The timer to time the connection
+  boost::asio::deadline_timer timer_;
 };
 
 typedef boost::shared_ptr<connection> connection_ptr;

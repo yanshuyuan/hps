@@ -16,6 +16,10 @@
 #include "mime_types.hpp"
 #include "reply.hpp"
 #include "request.hpp"
+#include "file_cache.hpp"
+#include <iostream>
+
+extern http::server3::file_cache *cache;
 
 namespace http {
 namespace server3 {
@@ -60,18 +64,24 @@ int request_handler::handle_request(const request& req, reply& rep)
 
   // Open the file to send back.
   std::string full_path = doc_root_ + request_path;
-  std::ifstream is(full_path.c_str(), std::ios::in | std::ios::binary);
-  if (!is)
-  {
-    rep = reply::stock_reply(reply::not_found);
-    return reply::not_found;
+  // add file cache
+  if((rep.content = cache->read(full_path)).size() == 0) {
+      std::ifstream is(full_path.c_str(), std::ios::in | std::ios::binary);
+      if (!is)
+      {
+        rep = reply::stock_reply(reply::not_found);
+        return reply::not_found;
+      }
+      std::cout << "read '" << full_path << "' from file." << endl; 
+      rep.content.clear();
+      char buf[512];
+      while (is.read(buf, sizeof(buf)).gcount() > 0)
+        rep.content.append(buf, is.gcount());
+      is.close();
+      cache->replace(full_path, rep.content);
   }
-
   // Fill out the reply to be sent to the client.
   rep.status = reply::ok;
-  char buf[512];
-  while (is.read(buf, sizeof(buf)).gcount() > 0)
-    rep.content.append(buf, is.gcount());
   rep.headers.resize(2);
   rep.headers[0].name = "Content-Length";
   rep.headers[0].value = boost::lexical_cast<std::string>(rep.content.size());

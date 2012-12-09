@@ -19,13 +19,18 @@ namespace http {
 namespace server3 {
 
 /// A request received from a client.
-struct request
+class request
 {
+public:
   std::string method;
   std::string uri;
   int http_version_major;
   int http_version_minor;
   std::vector<header> headers;
+public:
+  void reset();
+  request();
+  ~request();
 };
 
 } // namespace server3
